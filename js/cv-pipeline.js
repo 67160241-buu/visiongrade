@@ -950,8 +950,21 @@ export async function readSheet(source, opts = {}) {
   const rgba = cv.imread(canvas);
   let al;
   try {
-    try { al = alignSheet(cv, rgba, yoloPts); }
-    catch (e) { if (yoloPts) al = alignSheet(cv, rgba, null); else throw e; }
+    if (yoloPts) {
+      // ใช้มุมที่ YOLO หาได้ก่อน แล้วตรวจคุณภาพด้วย timing marks (ครบ = 38 จุด)
+      // ถ้า YOLO พลาด (เจอ mark น้อย) จะลองหามุมด้วย OpenCV แล้วเลือกผลที่ดีกว่า
+      try { al = alignSheet(cv, rgba, yoloPts); } catch (e) { console.warn('[YOLO] ปรับระนาบไม่ได้ -> ใช้ OpenCV', e); }
+      if (!al || al.info.marksPass2 < 30) {
+        let al2 = null;
+        try { al2 = alignSheet(cv, rgba, null); } catch (e) { if (!al) throw e; }
+        if (al2 && (!al || al2.info.marksPass2 > al.info.marksPass2)) {
+          if (al) { al.gray.delete(); al.color.delete(); }
+          al = al2; al.info.yoloRejected = true;
+        } else if (al2) { al2.gray.delete(); al2.color.delete(); }
+      }
+    } else {
+      al = alignSheet(cv, rgba, null);
+    }
   } finally { rgba.delete(); }
   try {
     stage('crop');

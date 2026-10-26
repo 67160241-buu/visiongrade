@@ -287,7 +287,7 @@ function renderViewer() {
     return `<label class="${cls(d)}"><span>${q})</span><input data-p2="${q}" value="${esc(s.answers.part2[q] ?? '')}" inputmode="decimal">${d && !d.is_correct ? `<i>→${esc(d.correct_answer)}</i>` : ''}</label>`;
   }).join('');
   const al = s.result.align || {};
-  $('#v-info').textContent = `ปรับระนาบ: ${al.cornerSource || '-'} • timing marks ${al.marksPass2 ?? '-'}/38 • โมเดล: วงกลม ${s.result.engine.bubble} / ตัวเลข ${s.result.engine.digit} • ${s.result.timeMs} ms`;
+  $('#v-info').textContent = `ปรับระนาบ: ${al.cornerSource === 'yolo' ? 'YOLO' : al.cornerSource || '-'}${al.yoloRejected ? ' (YOLO หามุมพลาด ใช้ OpenCV แทน)' : ''} • timing marks ${al.marksPass2 ?? '-'}/38 • โมเดล: วงกลม ${s.result.engine.bubble} / ตัวเลข ${s.result.engine.digit} • ${s.result.timeMs} ms`;
   $('#v-prev').disabled = idx <= 0;
   $('#v-next').disabled = idx >= sheets.filter((x) => x.status === 'done').length - 1;
   drawSheet();
@@ -368,8 +368,9 @@ async function showModelStatus() {
     const st = await getModelStatus();
     const b = st.bubble?.state === 'ready', d = st.digit?.state === 'ready';
     el.className = 'pill ' + (b && d ? 'ok' : 'warn');
-    el.textContent = b && d ? 'โมเดลพร้อม (ONNX)' : b || d ? `มีโมเดล${b ? 'วงกลม' : 'ตัวเลข'}อย่างเดียว` : 'ยังไม่มีโมเดล — ใช้โหมดวัดหมึก';
-    el.title = `bubble: ${st.bubble?.message || st.bubble?.state}\ndigit: ${st.digit?.message || st.digit?.state}`;
+    const y = st.yolo?.state === 'ready';
+    el.textContent = (b && d ? 'โมเดลพร้อม (ONNX)' : b || d ? `มีโมเดล${b ? 'วงกลม' : 'ตัวเลข'}อย่างเดียว` : 'ยังไม่มีโมเดล — ใช้โหมดวัดหมึก') + (y ? ' + YOLO' : '');
+    el.title = `bubble: ${st.bubble?.message || st.bubble?.state}\ndigit: ${st.digit?.message || st.digit?.state}\nyolo: ${st.yolo?.message || st.yolo?.state}`;
   } catch (e) {
     el.textContent = 'ตรวจสอบโมเดลไม่ได้'; el.title = e.message;
   }

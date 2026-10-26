@@ -34,7 +34,7 @@
     },
     "yolo": {
       "file": "yolo.onnx",
-      "enabled": false,
+      "enabled": true,
       "imgsz": 1024,
       "conf": 0.25,
       "classes": [
