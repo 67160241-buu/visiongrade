@@ -28,6 +28,14 @@
         </div>
       </div>
 
+      <div class="sets">
+        <label class="field">จำนวนชุดข้อสอบ
+          <select id="set-count"><option value="1">1 ชุด</option><option value="2">2 ชุด</option><option value="3">3 ชุด</option></select>
+        </label>
+        <div class="tabs" id="set-tabs"></div>
+        <p class="muted small" id="set-hint"></p>
+      </div>
+
       <div class="row gap-lg">
         <label class="field">คะแนนเต็ม Part 1<input type="number" id="w1" min="0" step="any"></label>
         <label class="field">คะแนนเต็ม Part 2<input type="number" id="w2" min="0" step="any"></label>
@@ -71,8 +79,8 @@
       <div id="stats" class="stats"></div>
       <div class="table-wrap">
         <table class="tbl">
-          <thead><tr><th>#</th><th>ไฟล์</th><th>รหัสนักเรียน</th><th class="num">Part 1</th><th class="num">Part 2</th><th class="num">รวม</th><th>สถานะ</th><th></th></tr></thead>
-          <tbody id="rows"><tr><td colspan="8" class="empty">ยังไม่มีผล — ใส่เฉลยแล้วอัปโหลดรูปในข้อ 2</td></tr></tbody>
+          <thead><tr><th>#</th><th>ไฟล์</th><th>รหัสนักเรียน</th><th>รหัสวิชา</th><th>รหัสสถานศึกษา</th><th>ชุด</th><th class="num">Part 1</th><th class="num">Part 2</th><th class="num">รวม</th><th>สถานะ</th><th></th></tr></thead>
+          <tbody id="rows"><tr><td colspan="11" class="empty">ยังไม่มีผล — ใส่เฉลยแล้วอัปโหลดรูปในข้อ 2</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -94,6 +102,11 @@
           </div>
         </div>
         <label class="field">รหัสนักเรียน<input id="v-id" autocomplete="off"></label>
+        <div class="row3">
+          <label class="field">รหัสวิชา<input id="v-subject" autocomplete="off"></label>
+          <label class="field">รหัสสถานศึกษา<input id="v-school" autocomplete="off"></label>
+          <label class="field">ชุดข้อสอบ<select id="v-booklet"></select></label>
+        </div>
         <div class="scores" id="v-scores"></div>
         <div id="v-review"></div>
         <h3>Part 1 <small class="muted">แก้คำตอบที่อ่านผิดได้</small></h3>

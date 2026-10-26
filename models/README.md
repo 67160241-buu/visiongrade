@@ -1,5 +1,7 @@
 # models/
 
-วาง `bubble.onnx` และ `digit.onnx` ที่ export จาก notebook ไว้ที่นี่ (ดู `docs/MODEL_TH.md`)
+วางไฟล์ที่ export จาก notebook ไว้ที่นี่ (ดู `docs/MODEL_TH.md`)
 
-`yolo.onnx` ไม่จำเป็น — ถ้าจะใช้ให้วางไฟล์แล้วแก้ `"enabled": true` ใน models.json
+- `bubble.onnx` — อ่านวงกลม
+- `digit.onnx` — อ่านตัวเลข
+- `yolo.onnx` — (ไม่บังคับ) หามุมกระดาษ: คัดลอก `best.onnx` ของ YOLO มาแล้วเปลี่ยนชื่อเป็น `yolo.onnx`
