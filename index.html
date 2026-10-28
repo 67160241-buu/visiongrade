@@ -40,6 +40,14 @@
         <label class="field">คะแนนเต็ม Part 1<input type="number" id="w1" min="0" step="any"></label>
         <label class="field">คะแนนเต็ม Part 2<input type="number" id="w2" min="0" step="any"></label>
         <label class="field">Part 2 ยอมคลาดเคลื่อน ±<input type="number" id="tol" min="0" step="any"></label>
+        <label class="field" title="อัตโนมัติ: ฝนตั้งแต่ 3 ข้อ = ทำข้อฝน, เขียนตั้งแต่ 1 ข้อ = ทำข้อเขียน คะแนนเต็มของแผ่นคิดเฉพาะส่วนที่ทำ">โหมดการตรวจ
+          <select id="grade-mode">
+            <option value="auto">อัตโนมัติ (ตรวจเฉพาะส่วนที่ทำ)</option>
+            <option value="all">ตรวจทุกส่วน</option>
+            <option value="part1">เฉพาะ Part 1 ข้อฝน</option>
+            <option value="part2">เฉพาะ Part 2 ข้อเขียน</option>
+          </select>
+        </label>
         <p class="muted" id="key-summary"></p>
       </div>
 
@@ -107,6 +115,7 @@
           <label class="field">รหัสสถานศึกษา<input id="v-school" autocomplete="off"></label>
           <label class="field">ชุดข้อสอบ<select id="v-booklet"></select></label>
         </div>
+        <label class="field">โหมดตรวจแผ่นนี้<select id="v-mode"></select></label>
         <div class="scores" id="v-scores"></div>
         <div id="v-review"></div>
         <h3>Part 1 <small class="muted">แก้คำตอบที่อ่านผิดได้</small></h3>

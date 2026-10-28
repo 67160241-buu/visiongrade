@@ -5,7 +5,7 @@
 //   3) ตารางผล Part 1 / Part 2 / รวม + ดูภาพตรวจและแก้คำตอบ + ดาวน์โหลด CSV
 // =====================================================================
 import { readSheet, drawOverlay, getModelStatus } from './cv-pipeline.js';
-import { gradeSheet, normPart1, normPart2, PART1_COUNT, PART2_COUNT } from './scoring.js';
+import { gradeSheet, normPart1, normPart2, PART1_COUNT, PART2_COUNT, GRADE_MODES } from './scoring.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -13,7 +13,8 @@ const fmt = (x) => (Number.isFinite(x) ? (Math.round(x * 100) / 100).toString() 
 
 // ---------------------------------------------------------------------
 // 1) เฉลย — แยกได้สูงสุด 3 ชุด (ตามวง "ชุดกระดาษคำถาม" 1/2/3 บนกระดาษ)
-//    cfg = { count: 1..3, active: ชุดที่กำลังแก้, sets: {1: {part1, part2, w1, w2, tol}, 2: ..., 3: ...} }
+//    cfg = { count: 1..3, active: ชุดที่กำลังแก้, mode: โหมดการตรวจ (ดู GRADE_MODES),
+//            sets: {1: {part1, part2, w1, w2, tol}, 2: ..., 3: ...} }
 // ---------------------------------------------------------------------
 const KEY_STORE = 'visiongrade_key';
 const MAX_SETS = 3;
@@ -24,12 +25,13 @@ const key = () => cfg.sets[cfg.active];          // เฉลยชุดที�
 function loadKey() {
   let k = null;
   try { k = JSON.parse(localStorage.getItem(KEY_STORE)); } catch {}
-  const c = { count: 1, active: 1, sets: {} };
+  const c = { count: 1, active: 1, mode: 'auto', sets: {} };
   if (k && k.sets) Object.assign(c, k);
   else if (k && k.part1) c.sets[1] = k;          // รูปแบบเก่า (มีเฉลยชุดเดียว)
   for (let i = 1; i <= MAX_SETS; i++) c.sets[i] ||= emptySet(c.sets[1]?.w1, c.sets[1]?.w2, c.sets[1]?.tol);
   c.count = Math.min(MAX_SETS, Math.max(1, Number(c.count) || 1));
   c.active = Math.min(c.count, Math.max(1, Number(c.active) || 1));
+  if (!(c.mode in GRADE_MODES)) c.mode = 'auto';
   return c;
 }
 function saveKey() {
@@ -56,6 +58,7 @@ function renderSets() {
 function renderKeyForm() {
   const k = key();
   $('#w1').value = k.w1; $('#w2').value = k.w2; $('#tol').value = k.tol;
+  $('#grade-mode').value = cfg.mode;
   renderSets(); renderKeyGrid(); renderKey2(); renderKeySummary();
 }
 
@@ -127,6 +130,7 @@ function initKey() {
     saveKey();
   });
   for (const id of ['w1', 'w2', 'tol']) $('#' + id).addEventListener('input', (e) => { key()[id] = Number(e.target.value) || 0; saveKey(); });
+  $('#grade-mode').addEventListener('change', (e) => { cfg.mode = e.target.value in GRADE_MODES ? e.target.value : 'auto'; saveKey(); });
 
   $('#key-clear').addEventListener('click', () => {
     if (!confirm(cfg.count > 1 ? `ล้างเฉลยชุดที่ ${cfg.active}?` : 'ล้างเฉลยทั้งหมด?')) return;
@@ -220,13 +224,17 @@ const bookletOf = (s) => (cfg.count === 1 ? 1 : s.booklet >= 1 && s.booklet <= c
 function grade(s) {
   if (s.status !== 'done') return;
   s.usedSet = bookletOf(s) || 1;
-  s.grade = gradeSheet(s.answers, cfg.sets[s.usedSet]);
+  s.grade = gradeSheet(s.answers, cfg.sets[s.usedSet], s.mode || cfg.mode);   // s.mode = ครูเลือกโหมดเฉพาะแผ่นนี้
 }
 function regradeAll() { sheets.forEach(grade); renderTable(); }
 
 // จุดที่ต้องให้ครูดู (ไม่นับข้อความแจ้งว่ายังไม่มีโมเดล)
 // มีชุดเดียว = ไม่ต้องเตือนเรื่องวงชุดกระดาษคำถาม
-const reviewItems = (s) => (s.result?.review || []).filter((r) => r.type !== 'model' && !(r.type === 'qset' && (cfg.count === 1 || s.bookletSet)));
+// โหมด auto ข้ามข้อฝนเพราะพบรอยฝนแค่ 1–2 ข้อ -> เตือนให้ครูดูด้วย
+const reviewItems = (s) => [
+  ...(s.result?.review || []).filter((r) => r.type !== 'model' && !(r.type === 'qset' && (cfg.count === 1 || s.bookletSet))),
+  ...(s.grade?.sectionNote ? [{ type: 'section', item: s.grade.sectionNote }] : []),
+];
 
 // ---------------------------------------------------------------------
 // 3) ตารางผล + สถิติ + CSV
@@ -255,9 +263,9 @@ function renderTable() {
         <td class="mono">${esc(s.subject || dash)}</td>
         <td class="mono">${esc(s.school || dash)}</td>
         <td>${s.status === 'done' ? (bookletOf(s) ? (cfg.count > 1 ? bookletOf(s) : '1') : '<b style="color:var(--bad)">?</b>') : ''}</td>
-        <td class="num">${g ? `${fmt(g.p1)} <small class="muted">(${g.p1Correct}/${g.p1Count})</small>` : ''}</td>
-        <td class="num">${g ? `${fmt(g.p2)} <small class="muted">(${g.p2Correct}/${g.p2Count})</small>` : ''}</td>
-        <td class="num"><b>${g ? fmt(g.total) : ''}</b></td>
+        <td class="num">${!g ? '' : g.p1Graded ? `${fmt(g.p1)} <small class="muted">(${g.p1Correct}/${g.p1Count})</small>` : '<small class="muted">ไม่ได้ทำ</small>'}</td>
+        <td class="num">${!g ? '' : g.p2Graded ? `${fmt(g.p2)} <small class="muted">(${g.p2Correct}/${g.p2Count})</small>` : '<small class="muted">ไม่ได้ทำ</small>'}</td>
+        <td class="num">${g ? `<b>${fmt(g.total)}</b> <small class="muted">/ ${fmt(g.full)}</small>` : ''}</td>
         <td>${st}</td>
         <td>${s.status === 'done' ? `<button class="btn btn-light btn-sm" data-view="${s.id}">ดู / แก้</button>` : ''}
             <button class="btn btn-light btn-sm" data-del="${s.id}" title="ลบ">✕</button></td></tr>`;
@@ -266,25 +274,31 @@ function renderTable() {
   const done = sheets.filter((s) => s.grade);
   $('#csv').disabled = !done.length;
   $('#clear').disabled = !sheets.length || running;
-  const tot = done.map((s) => s.grade.total);
+  // คะแนนเต็มแต่ละแผ่นอาจไม่เท่ากัน (ตรวจเฉพาะส่วนที่ทำ) -> สถิติรวมใช้ร้อยละ
+  const pct = done.map((s) => pctOf(s.grade));
+  const g1 = done.filter((s) => s.grade.p1Graded), g2 = done.filter((s) => s.grade.p2Graded);
+  const avg = (arr, f) => fmt(arr.reduce((a, s) => a + f(s), 0) / arr.length);
   const stat = (v, t) => `<div class="stat"><b>${v}</b><span>${t}</span></div>`;
   $('#stats').innerHTML = done.length
-    ? stat(done.length, 'แผ่นที่ตรวจแล้ว') + stat(fmt(tot.reduce((a, b) => a + b, 0) / tot.length), 'ค่าเฉลี่ย')
-      + stat(fmt(Math.max(...tot)), 'สูงสุด') + stat(fmt(Math.min(...tot)), 'ต่ำสุด')
-      + stat(fmt(done.reduce((a, s) => a + s.grade.p1, 0) / done.length), 'เฉลี่ย Part 1')
-      + stat(fmt(done.reduce((a, s) => a + s.grade.p2, 0) / done.length), 'เฉลี่ย Part 2')
+    ? stat(done.length, 'แผ่นที่ตรวจแล้ว') + stat(fmt(pct.reduce((a, b) => a + b, 0) / pct.length) + '%', 'ค่าเฉลี่ย')
+      + stat(fmt(Math.max(...pct)) + '%', 'สูงสุด') + stat(fmt(Math.min(...pct)) + '%', 'ต่ำสุด')
+      + (g1.length ? stat(avg(g1, (s) => s.grade.p1), `เฉลี่ย Part 1 (${g1.length} แผ่น)`) : '')
+      + (g2.length ? stat(avg(g2, (s) => s.grade.p2), `เฉลี่ย Part 2 (${g2.length} แผ่น)`) : '')
     : '';
 }
 
+const pctOf = (g) => (g.full ? (100 * g.total) / g.full : 0);
+const gradedText = (g) => [g.p1Graded && 'Part 1', g.p2Graded && 'Part 2'].filter(Boolean).join(' + ');
+
 function downloadCSV() {
-  const head = ['ลำดับ', 'ไฟล์', 'รหัสนักเรียน', 'รหัสวิชา', 'รหัสสถานศึกษา', 'ชุดข้อสอบ', 'Part 1', 'Part 2', 'รวม', 'คะแนนเต็ม', 'จุดที่ควรตรวจ'];
+  const head = ['ลำดับ', 'ไฟล์', 'รหัสนักเรียน', 'รหัสวิชา', 'รหัสสถานศึกษา', 'ชุดข้อสอบ', 'Part 1', 'Part 2', 'รวม', 'คะแนนเต็ม', 'ร้อยละ', 'ส่วนที่ตรวจ', 'จุดที่ควรตรวจ'];
   for (let q = 1; q <= PART1_COUNT; q++) head.push('ข้อ ' + q);
   for (let q = 1; q <= PART2_COUNT; q++) head.push('P2 ข้อ ' + q);
   const lines = [head];
   sheets.filter((s) => s.grade).forEach((s, i) => {
-    const k = cfg.sets[s.usedSet], full = (s.grade.p1Count ? +k.w1 : 0) + (s.grade.p2Count ? +k.w2 : 0);
+    const g = s.grade;
     const row = [i + 1, s.name, s.studentId, s.subject, s.school, bookletOf(s) ?? `? (ใช้ชุด ${s.usedSet})`,
-      s.grade.p1, s.grade.p2, s.grade.total, full, reviewItems(s).length];
+      g.p1Graded ? g.p1 : '', g.p2Graded ? g.p2 : '', g.total, g.full, fmt(pctOf(g)), gradedText(g), reviewItems(s).length];
     for (let q = 1; q <= PART1_COUNT; q++) row.push(normPart1(s.answers.part1[q]));
     for (let q = 1; q <= PART2_COUNT; q++) row.push(s.answers.part2[q] ?? '');
     lines.push(row);
@@ -338,10 +352,15 @@ function renderViewer() {
   $('#v-booklet').innerHTML = (b ? '' : `<option value="" selected>? ไม่รู้</option>`) +
     Array.from({ length: cfg.count }, (_, i) => `<option value="${i + 1}" ${b === i + 1 ? 'selected' : ''}>ชุด ${i + 1}</option>`).join('');
   $('#v-booklet').disabled = cfg.count === 1;
+  $('#v-mode').innerHTML = `<option value="">ตามที่ตั้งไว้ (${esc(GRADE_MODES[cfg.mode])})</option>` +
+    Object.entries(GRADE_MODES).map(([m, label]) => `<option value="${m}" ${s.mode === m ? 'selected' : ''}>${esc(label)}</option>`).join('');
+  const box = (name, graded, pts, ok, n) => graded
+    ? `<div><span>${name}</span><b>${fmt(pts)}</b><span>ถูก ${ok}/${n}</span></div>`
+    : `<div><span>${name}</span><b>—</b><span>ไม่ได้ทำ</span></div>`;
   $('#v-scores').innerHTML =
-    `<div><span>Part 1</span><b>${fmt(g.p1)}</b><span>ถูก ${g.p1Correct}/${g.p1Count}</span></div>` +
-    `<div><span>Part 2</span><b>${fmt(g.p2)}</b><span>ถูก ${g.p2Correct}/${g.p2Count}</span></div>` +
-    `<div><span>รวม</span><b>${fmt(g.total)}</b><span>${cfg.count > 1 ? `เฉลยชุด ${s.usedSet} • ` : ''}แผ่นที่ ${idx + 1}</span></div>`;
+    box('Part 1', g.p1Graded, g.p1, g.p1Correct, g.p1Count) +
+    box('Part 2', g.p2Graded, g.p2, g.p2Correct, g.p2Count) +
+    `<div><span>รวม</span><b>${fmt(g.total)} / ${fmt(g.full)}</b><span>${cfg.count > 1 ? `เฉลยชุด ${s.usedSet} • ` : ''}แผ่นที่ ${idx + 1}</span></div>`;
 
   const rv = reviewItems(s).map(reviewText).filter(Boolean);
   if (!b) rv.unshift(`ไม่รู้ว่าเป็นชุดไหน (ไม่ได้ฝนหรือฝนหลายวง) — ตอนนี้ใช้เฉลยชุด 1 เลือกชุดที่ถูกต้องด้านบน`);
@@ -404,6 +423,11 @@ function initViewer() {
   $('#v-booklet').addEventListener('change', (e) => {
     if (!e.target.value) return;
     viewing.booklet = Number(e.target.value); viewing.bookletSet = true;
+    grade(viewing); renderTable(); renderViewer();
+  });
+  // ครูเลือกโหมดตรวจเฉพาะแผ่นนี้ ("" = ใช้โหมดที่ตั้งไว้ในข้อ 1)
+  $('#v-mode').addEventListener('change', (e) => {
+    viewing.mode = e.target.value || null;
     grade(viewing); renderTable(); renderViewer();
   });
   // แก้คำตอบ -> คิดคะแนนใหม่ทันที
