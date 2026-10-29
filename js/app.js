@@ -2,9 +2,10 @@
 // app.js — หน้าเว็บทั้งหมด (หน้าเดียว)
 //   1) เฉลย + คะแนนเต็ม (บันทึกไว้ใน localStorage ของเบราว์เซอร์)
 //   2) อัปโหลดรูปหลายรูป -> ตรวจทีละรูปด้วย cv-pipeline.js
-//   3) ตารางผล Part 1 / Part 2 / รวม + ดูภาพตรวจและแก้คำตอบ + ดาวน์โหลด CSV
+//   3) ตารางผล Part 1 / Part 2 / รวม + ดูภาพตรวจและแก้คำตอบ + ส่งออกคะแนน (Excel / CSV / PDF / JSON)
 // =====================================================================
 import { readSheet, drawOverlay, getModelStatus } from './cv-pipeline.js';
+import { CONFIG } from './config.js';
 import { gradeSheet, normPart1, normPart2, PART1_COUNT, PART2_COUNT, GRADE_MODES } from './scoring.js';
 
 const $ = (s) => document.querySelector(s);
@@ -237,7 +238,7 @@ const reviewItems = (s) => [
 ];
 
 // ---------------------------------------------------------------------
-// 3) ตารางผล + สถิติ + CSV
+// 3) ตารางผล + สถิติ + ส่งออกคะแนน
 // ---------------------------------------------------------------------
 function renderTable() {
   const tb = $('#rows');
@@ -272,7 +273,7 @@ function renderTable() {
     }).join('');
   }
   const done = sheets.filter((s) => s.grade);
-  $('#csv').disabled = !done.length;
+  $('#export-btn').disabled = !done.length;
   $('#clear').disabled = !sheets.length || running;
   // คะแนนเต็มแต่ละแผ่นอาจไม่เท่ากัน (ตรวจเฉพาะส่วนที่ทำ) -> สถิติรวมใช้ร้อยละ
   const pct = done.map((s) => pctOf(s.grade));
@@ -290,27 +291,147 @@ function renderTable() {
 const pctOf = (g) => (g.full ? (100 * g.total) / g.full : 0);
 const gradedText = (g) => [g.p1Graded && 'Part 1', g.p2Graded && 'Part 2'].filter(Boolean).join(' + ');
 
-function downloadCSV() {
-  const head = ['ลำดับ', 'ไฟล์', 'รหัสนักเรียน', 'รหัสวิชา', 'รหัสสถานศึกษา', 'ชุดข้อสอบ', 'Part 1', 'Part 2', 'รวม', 'คะแนนเต็ม', 'ร้อยละ', 'ส่วนที่ตรวจ', 'จุดที่ควรตรวจ'];
-  for (let q = 1; q <= PART1_COUNT; q++) head.push('ข้อ ' + q);
-  for (let q = 1; q <= PART2_COUNT; q++) head.push('P2 ข้อ ' + q);
-  const lines = [head];
-  sheets.filter((s) => s.grade).forEach((s, i) => {
+// ---- ส่งออกคะแนน: ทุกรูปแบบใช้ข้อมูลชุดเดียวกันจาก exportRows() ----
+const SUMMARY_HEAD = ['ลำดับ', 'ไฟล์', 'รหัสนักเรียน', 'รหัสวิชา', 'รหัสสถานศึกษา', 'ชุดข้อสอบ', 'Part 1', 'Part 2', 'รวม', 'คะแนนเต็ม', 'ร้อยละ', 'ส่วนที่ตรวจ', 'จุดที่ควรตรวจ'];
+const ID_COLS = [2, 3, 4];   // คอลัมน์รหัส (ต้องเก็บเป็นข้อความ ไม่ให้เลข 0 ข้างหน้าหาย)
+const today = () => new Date().toISOString().slice(0, 10);
+const pctX = (g) => (g.full ? (100 * g.total) / g.full : null);
+const r2 = (x) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : '');
+
+function exportRows() {
+  return sheets.filter((s) => s.grade).map((s, i) => {
     const g = s.grade;
-    const row = [i + 1, s.name, s.studentId, s.subject, s.school, bookletOf(s) ?? `? (ใช้ชุด ${s.usedSet})`,
-      g.p1Graded ? g.p1 : '', g.p2Graded ? g.p2 : '', g.total, g.full, fmt(pctOf(g)), gradedText(g), reviewItems(s).length];
-    for (let q = 1; q <= PART1_COUNT; q++) row.push(normPart1(s.answers.part1[q]));
-    for (let q = 1; q <= PART2_COUNT; q++) row.push(s.answers.part2[q] ?? '');
-    lines.push(row);
+    return {
+      s, g,
+      summary: [i + 1, s.name, s.studentId || '', s.subject || '', s.school || '', bookletOf(s) ?? `? (ใช้ชุด ${s.usedSet})`,
+        g.p1Graded ? g.p1 : '', g.p2Graded ? g.p2 : '', g.total, g.full, g.full ? r2(pctX(g)) : '',
+        [g.p1Graded && 'Part 1', g.p2Graded && 'Part 2'].filter(Boolean).join(' + '), reviewItems(s).length],
+      p1: Array.from({ length: PART1_COUNT }, (_, q) => normPart1(s.answers.part1[q + 1])),
+      p2: Array.from({ length: PART2_COUNT }, (_, q) => s.answers.part2[q + 1] ?? ''),
+    };
   });
-  // ใส่ ="..." ให้รหัสที่ขึ้นต้นด้วย 0 ไม่หายเมื่อเปิดใน Excel
-  const cell = (v, j, i) => i > 0 && (j >= 2 && j <= 4) && v ? `="${v}"` : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
-  const csv = '﻿' + lines.map((r, i) => r.map((v, j) => cell(v, j, i)).join(',')).join('\r\n');
+}
+const qHead = () => [...Array.from({ length: PART1_COUNT }, (_, q) => 'ข้อ ' + (q + 1)), ...Array.from({ length: PART2_COUNT }, (_, q) => 'P2 ข้อ ' + (q + 1))];
+
+function saveFile(data, type, ext) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = `visiongrade_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
+  a.download = `visiongrade_${today()}.${ext}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function downloadCSV() {
+  const lines = [[...SUMMARY_HEAD, ...qHead()], ...exportRows().map((r) => [...r.summary, ...r.p1, ...r.p2])];
+  // ใส่ ="..." ให้รหัสที่ขึ้นต้นด้วย 0 ไม่หายเมื่อเปิดใน Excel
+  const cell = (v, j, i) => i > 0 && ID_COLS.includes(j) && v ? `="${v}"` : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  saveFile('﻿' + lines.map((r, i) => r.map((v, j) => cell(v, j, i)).join(',')).join('\r\n'), 'text/csv;charset=utf-8', 'csv');
+}
+
+function downloadJSON() {
+  const out = {
+    app: 'VisionGrade', template: 'Template No. 4', exported_at: new Date().toISOString(),
+    grade_mode: cfg.mode, exam_sets: cfg.count,
+    answer_keys: Object.fromEntries(Array.from({ length: cfg.count }, (_, i) => [i + 1, cfg.sets[i + 1]])),
+    sheets: exportRows().map(({ s, g }) => ({
+      file: s.name, student_id: s.studentId || '', subject_code: s.subject || '', school_code: s.school || '',
+      booklet: bookletOf(s), graded_with_set: s.usedSet,
+      score: { part1: g.p1Graded ? g.p1 : null, part2: g.p2Graded ? g.p2 : null, total: g.total, full: g.full, percent: g.full ? r2(pctX(g)) : null,
+        part1_correct: g.p1Correct, part1_count: g.p1Count, part2_correct: g.p2Correct, part2_count: g.p2Count },
+      answers: s.answers, review: reviewItems(s).map((r) => r.item ?? r.type),
+    })),
+  };
+  saveFile(JSON.stringify(out, null, 2), 'application/json', 'json');
+}
+
+let xlsxLib = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return (xlsxLib ||= new Promise((ok, bad) => {
+    const sc = document.createElement('script');
+    sc.src = CONFIG.LIBS.xlsx; sc.onload = () => ok(window.XLSX);
+    sc.onerror = () => { xlsxLib = null; bad(new Error('โหลดไลบรารี Excel ไม่ได้ (ต้องต่ออินเทอร์เน็ต)')); };
+    document.head.appendChild(sc);
+  }));
+}
+
+async function downloadXLSX() {
+  const XLSX = await loadXLSX();
+  const rows = exportRows();
+  const wb = XLSX.utils.book_new();
+  const sheet = (aoa, widths) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = widths.map((w) => ({ wch: w })); return ws; };
+  // แผ่นที่ 1: คะแนน (รหัสเป็นข้อความอยู่แล้ว เลข 0 ข้างหน้าไม่หาย)
+  XLSX.utils.book_append_sheet(wb, sheet([SUMMARY_HEAD, ...rows.map((r) => r.summary)], [6, 22, 16, 14, 14, 10, 8, 8, 8, 10, 8, 16, 12]), 'คะแนน');
+  // แผ่นที่ 2: คำตอบรายข้อ
+  XLSX.utils.book_append_sheet(wb, sheet([['ลำดับ', 'รหัสนักเรียน', 'ชุด', ...qHead()], ...rows.map((r) => [r.summary[0], r.summary[2], r.summary[5], ...r.p1, ...r.p2])],
+    [6, 16, 6, ...Array(PART1_COUNT + PART2_COUNT).fill(6)]), 'คำตอบรายข้อ');
+  // แผ่นที่ 3: เฉลยแต่ละชุด
+  const keyRows = [['ชุด', 'คะแนนเต็ม Part 1', 'คะแนนเต็ม Part 2', 'Part 2 ยอมคลาด ±', ...qHead()]];
+  for (let n = 1; n <= cfg.count; n++) {
+    const k = cfg.sets[n];
+    keyRows.push([n, k.w1, k.w2, k.tol,
+      ...Array.from({ length: PART1_COUNT }, (_, q) => normPart1(k.part1[q + 1]) || ''),
+      ...Array.from({ length: PART2_COUNT }, (_, q) => k.part2[q + 1] ?? '')]);
+  }
+  XLSX.utils.book_append_sheet(wb, sheet(keyRows, [6, 14, 14, 14, ...Array(PART1_COUNT + PART2_COUNT).fill(6)]), 'เฉลย');
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveFile(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), null, 'xlsx');
+}
+
+// PDF: สร้างหน้ารายงานแล้วเปิดหน้าต่างพิมพ์ของเบราว์เซอร์ -> เลือก "บันทึกเป็น PDF" (ภาษาไทยแสดงถูกต้อง)
+function printReport() {
+  const rows = exportRows();
+  const tot = rows.map((r) => pctX(r.g)).filter(Number.isFinite);
+  const avg = tot.length ? tot.reduce((a, b) => a + b, 0) / tot.length : NaN;
+  const sd = tot.length ? Math.sqrt(tot.reduce((a, b) => a + (b - avg) ** 2, 0) / tot.length) : NaN;
+  const pass = tot.filter((x) => x >= 50).length;
+  const uniq = (i) => [...new Set(rows.map((r) => r.summary[i]).filter(Boolean))].join(', ') || '—';
+  const td = (v, c = '') => `<td${c ? ` class="${c}"` : ''}>${esc(v === '' ? '—' : v)}</td>`;
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>รายงานคะแนน ${today()}</title>
+<style>
+@page { size: A4; margin: 14mm 12mm; }
+body { font-family: 'Prompt', 'Sarabun', 'Tahoma', sans-serif; color: #0f172a; font-size: 12px; margin: 0; }
+h1 { font-size: 18px; margin: 0 0 4px; } .muted { color: #64748b; }
+.meta { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0 12px; }
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px; }
+.stats div { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; } .stats b { display: block; font-size: 16px; }
+table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; }
+th { background: #f1f5f9; } .num { text-align: right; } .mono { font-family: Consolas, monospace; }
+tr { break-inside: avoid; } thead { display: table-header-group; }
+</style></head><body>
+<h1>รายงานคะแนน — VisionGrade</h1>
+<div class="muted">กระดาษคำตอบ Template No. 4 • พิมพ์เมื่อ ${esc(new Date().toLocaleString('th-TH'))}</div>
+<div class="meta"><span>รหัสวิชา: <b>${esc(uniq(3))}</b></span><span>รหัสสถานศึกษา: <b>${esc(uniq(4))}</b></span><span>จำนวนชุดข้อสอบ: <b>${cfg.count}</b></span></div>
+<div class="stats">
+<div><b>${rows.length}</b>จำนวนแผ่น</div><div><b>${fmt(avg)}%</b>ค่าเฉลี่ย</div><div><b>${fmt(sd)}</b>ส่วนเบี่ยงเบนมาตรฐาน</div>
+<div><b>${tot.length ? fmt(Math.max(...tot)) : '—'}%</b>สูงสุด</div><div><b>${tot.length ? fmt(Math.min(...tot)) : '—'}%</b>ต่ำสุด</div><div><b>${pass}</b>ได้ 50% ขึ้นไป</div>
+</div>
+<table><thead><tr><th>#</th><th>รหัสนักเรียน</th><th>รหัสวิชา</th><th>ชุด</th><th class="num">Part 1</th><th class="num">Part 2</th><th class="num">รวม</th><th class="num">เต็ม</th><th class="num">ร้อยละ</th><th>หมายเหตุ</th></tr></thead><tbody>
+${rows.map((r) => { const m = r.summary; return `<tr>${td(m[0])}${td(m[2], 'mono')}${td(m[3], 'mono')}${td(m[5])}${td(m[6], 'num')}${td(m[7], 'num')}<td class="num"><b>${esc(m[8])}</b></td>${td(m[9], 'num')}${td(m[10], 'num')}${td(m[12] ? `ควรตรวจ ${m[12]} จุด` : '')}</tr>`; }).join('')}
+</tbody></table></body></html>`;
+  // พิมพ์ผ่าน iframe ที่ซ่อนอยู่ (ไม่โดนตัวบล็อกป๊อปอัป)
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 60000); }, 300);
+}
+
+const EXPORTERS = { xlsx: downloadXLSX, csv: downloadCSV, pdf: printReport, json: downloadJSON };
+function initExport() {
+  const btn = $('#export-btn'), menu = $('#export-menu');
+  const close = () => { menu.hidden = true; };
+  btn.addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#export')) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  menu.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-fmt]'); if (!b) return;
+    close();
+    const old = btn.textContent; btn.disabled = true; btn.textContent = 'กำลังสร้างไฟล์…';
+    try { await EXPORTERS[b.dataset.fmt](); }
+    catch (err) { console.error(err); alert('ส่งออกไม่สำเร็จ: ' + err.message); }
+    finally { btn.textContent = old; btn.disabled = !sheets.some((s) => s.grade); }
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -462,7 +583,7 @@ function initUpload() {
       if (i >= 0 && sheets[i].status !== 'run') { if (sheets[i].img) URL.revokeObjectURL(sheets[i].img); sheets.splice(i, 1); renderTable(); }
     }
   });
-  $('#csv').addEventListener('click', downloadCSV);
+  initExport();
   $('#clear').addEventListener('click', () => {
     if (!confirm('ล้างผลทั้งหมด?')) return;
     sheets.splice(0).forEach((s) => s.img && URL.revokeObjectURL(s.img));

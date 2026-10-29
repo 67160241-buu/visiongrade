@@ -7,6 +7,7 @@ export const CONFIG = {
     opencv: 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
     ort: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js',
     ortWasmBase: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/',
+    xlsx: 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',   // โหลดเมื่อกดส่งออก Excel
   },
 
   // รายการโมเดล (วางไฟล์ .onnx ไว้ในโฟลเดอร์ models/ — ดู docs/MODEL_TH.md)

@@ -80,7 +80,15 @@
       <div class="card-head">
         <h2><span class="step">3</span>ผลคะแนน</h2>
         <div class="row">
-          <button class="btn btn-primary" id="csv" disabled>ดาวน์โหลด CSV</button>
+          <div class="export" id="export">
+            <button class="btn btn-primary" id="export-btn" disabled aria-haspopup="true">ส่งออกคะแนน ▾</button>
+            <div class="menu" id="export-menu" hidden>
+              <button data-fmt="xlsx"><b>Excel (.xlsx)</b><small>3 แผ่นงาน: คะแนน, คำตอบรายข้อ, เฉลย</small></button>
+              <button data-fmt="csv"><b>CSV (.csv)</b><small>เปิดได้ทุกโปรแกรม รวม Google Sheets</small></button>
+              <button data-fmt="pdf"><b>PDF / พิมพ์</b><small>รายงานคะแนนพร้อมสถิติ เลือก "บันทึกเป็น PDF"</small></button>
+              <button data-fmt="json"><b>JSON (.json)</b><small>ข้อมูลครบทุกอย่าง สำหรับนำไปใช้ต่อในโปรแกรม</small></button>
+            </div>
+          </div>
           <button class="btn btn-light" id="clear" disabled>ล้างผลทั้งหมด</button>
         </div>
       </div>
